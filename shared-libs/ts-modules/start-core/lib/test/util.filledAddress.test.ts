@@ -2,7 +2,10 @@ import { Host } from '../osBindings'
 import { deepEqual } from '../util'
 import { fillHost } from '../util/filledAddress'
 
-const host = (fingerprint: string): Host => ({
+const host = (
+  fingerprint: string,
+  disabled: [string, number][] = [],
+): Host => ({
   bindings: {
     5223: {
       enabled: true,
@@ -10,7 +13,7 @@ const host = (fingerprint: string): Host => ({
       net: { assignedPort: null, assignedSslPort: 5223 },
       addresses: {
         enabled: [],
-        disabled: [],
+        disabled,
         guaWan: [],
         available: [
           {
@@ -101,5 +104,25 @@ describe('fillHost', () => {
     expect(address.nonLocal.hostnames.map(h => h.hostname)).toEqual([
       'relay.onion',
     ])
+  })
+
+  test('configured keeps an mDNS name no LAN IP resolves', () => {
+    const address = addressOf(host('AAAA='))
+    expect(address.hostnames.map(h => h.hostname)).toEqual(['relay.onion'])
+    expect(address.configured.nonLocal.hostnames.map(h => h.hostname)).toEqual([
+      'relay.onion',
+      'relay.local',
+    ])
+  })
+
+  test('configured drops a disabled address', () => {
+    const address = addressOf(host('AAAA=', [['relay.local', 5223]]))
+    expect(address.configured.hostnames.map(h => h.hostname)).toEqual([
+      'relay.onion',
+    ])
+  })
+
+  test('configured is hidden from enumeration', () => {
+    expect(Object.keys(addressOf(host('AAAA=')))).not.toContain('configured')
   })
 })

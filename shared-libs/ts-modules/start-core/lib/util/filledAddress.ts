@@ -213,7 +213,15 @@ export type Filled<F extends Filter = {}> = {
   /** Shorthand filter that keeps only LXC bridge addresses (those on the `lxcbr0` gateway). */
   bridge: Filled<typeof bridgeFilter & Filter>
 }
-export type FilledAddressInfo = AddressInfo & Filled
+export type FilledAddressInfo = AddressInfo &
+  Filled & {
+    /**
+     * Every address the user has not disabled, reachable this instant or not.
+     * `hostnames` and the filters drop an mDNS name while no LAN IP is up on
+     * its interface; this view keeps it.
+     */
+    configured: Filled
+  }
 
 /** A {@link ServiceInterface} whose `addressInfo` is a {@link Filled} address — carrying its filter, format and URL helpers. */
 export type FilledServiceInterface = Omit<ServiceInterface, 'addressInfo'> & {
@@ -345,8 +353,8 @@ export function mdnsResolvable(
   return h.metadata.gateways.some(g => lanGateways.has(g))
 }
 
-function enabledAddresses(addr: DerivedAddressInfo): HostnameInfo[] {
-  const enabled = addr.available.filter(h => {
+function userEnabled(addr: DerivedAddressInfo): HostnameInfo[] {
+  return addr.available.filter(h => {
     if (isPublicIp(h)) {
       // Public IPs: disabled by default, explicitly enabled via SocketAddr string
       if (h.port === null) return true
@@ -362,8 +370,6 @@ function enabledAddresses(addr: DerivedAddressInfo): HostnameInfo[] {
       )
     }
   })
-
-  return enabled.filter(h => mdnsResolvable(h, enabled))
 }
 
 /**
@@ -390,7 +396,8 @@ export const filledAddress = (
 ): FilledAddressInfo => {
   const toUrl = addressHostToUrl.bind(null, addressInfo)
   const binding = host.bindings[addressInfo.internalPort]
-  const hostnames = binding ? enabledAddresses(binding.addresses) : []
+  const enabled = binding ? userEnabled(binding.addresses) : []
+  const hostnames = enabled.filter(h => mdnsResolvable(h, enabled))
 
   function filledAddressFromHostnames<F extends Filter>(
     hostnames: HostnameInfo[],
@@ -460,7 +467,12 @@ export const filledAddress = (
     return filled
   }
 
-  return filledAddressFromHostnames<{}>(hostnames)
+  const filled = filledAddressFromHostnames<{}>(hostnames) as FilledAddressInfo
+  Object.defineProperty(filled, 'configured', {
+    enumerable: false,
+    get: once(() => filledAddressFromHostnames<{}>(enabled)),
+  })
+  return filled
 }
 
 /**
